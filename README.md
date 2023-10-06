@@ -5,6 +5,8 @@
 
 > A custom implementation of the Channels API for communicating with an Elixir/Phoenix backend via WebSockets.
 
+Full Documentation: https://inkarnaterpg.github.io/phoenix-websocket/
+
 ## How this differs from the `phoenix` package
 
 - Built with async/await.
