@@ -1,0 +1,50 @@
+{
+  "name": "phoenix-websocket",
+  "version": "1.0.0",
+  "description": "A custom implementation of the Channels API for communicating with a Phoenix backend via WebSockets.",
+  "exports": {
+    ".": {
+      "require": "./build/phoenix-websocket.cjs",
+      "import": "./build/phoenix-websocket.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./build/phoenix-websocket.d.ts",
+  "files": [
+    "build"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "docs": "typedoc --entryPointStrategy resolve ./src/phoenix-websocket.ts --out docs/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkarnaterpg/phoenix-websocket.git"
+  },
+  "keywords": [
+    "phoenix",
+    "websocket",
+    "sockets",
+    "elixir",
+    "channels"
+  ],
+  "author": "Inkarnate",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/inkarnaterpg/phoenix-websocket/issues"
+  },
+  "homepage": "https://github.com/inkarnaterpg/phoenix-websocket#readme",
+  "devDependencies": {
+    "@babel/preset-env": "^7.22.20",
+    "@rollup/plugin-babel": "^6.0.4",
+    "@rollup/plugin-typescript": "^11.1.5",
+    "eslint": "^8.50.0",
+    "eslint-config-react-app": "^7.0.1",
+    "prettier": "^3.0.3",
+    "rollup": "^4.0.0",
+    "tslib": "^2.6.2",
+    "typedoc": "^0.25.1",
+    "typescript": "^5.2.2"
+  }
+}

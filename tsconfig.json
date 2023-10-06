@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "downlevelIteration": true,
+    "allowSyntheticDefaultImports": true,
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "allowJs": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "emitDeclarationOnly": false,
+    "declaration": true,
+    "target": "ESNext",
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "strict": true,
+    "useUnknownInCatchVariables": false,
+    "useDefineForClassFields": true,
+    "noFallthroughCasesInSwitch": true,
+    "rootDir": "src",
+    "outDir": "build"
+  },
+  "exclude": ["node_modules/**/*", "node_modules", "build", ".prettierrc.js", "rollup.config.js", "build", "docs", ".github"]
+}

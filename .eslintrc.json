@@ -1,0 +1,12 @@
+{
+  "extends": ["eslint-config-react-app", "prettier"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "destructuredArrayIgnorePattern": "^_", "argsIgnorePattern": "^_" }
+    ],
+    "@typescript-eslint/no-redeclare": "off",
+    "eqeqeq": "off",
+    "no-extend-native": ["error", { "exceptions": ["Array", "Math"] }]
+  }
+}

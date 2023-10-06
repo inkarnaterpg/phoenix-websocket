@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+.cache/
+.vscode/
+yarn-error.log
+.DS_Store
+.env
+.idea/
+*.code-workspace
+docs/
