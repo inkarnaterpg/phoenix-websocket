@@ -1,6 +1,6 @@
 {
   "name": "phoenix-websocket",
-  "version": "__REACT_APP_BUILD_VERSION__",
+  "version": "__BUILD_VERSION__",
   "description": "A custom implementation of the Channels API for communicating with a Phoenix backend via WebSockets.",
   "exports": {
     ".": {
