@@ -2,9 +2,8 @@ name: Build and Publish phoenix-websocket
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push events but only for the develop branch
-  push:
-    branches: [master]
+  release:
+    types: [released]
 
 env:
     DESIRED_NODE_VERSION: 20
@@ -28,6 +27,32 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: ${{ env.DESIRED_NODE_VERSION }}
+
+      - name: Set sources version
+        run: |
+          VERSION="${{ github.ref }}"
+          
+          if [ -z "$VERSION" ]
+          then
+            echo "Version empty"
+            exit 1
+          fi
+          
+          if [[ $VERSION == *"/tags/"* ]]
+          then
+            echo "Version is tag."
+            VERSION="${VERSION##*/v}"
+          else
+            echo "Version unexpected format"
+            exit 1
+          fi
+          echo "Version trimmed to $VERSION"
+          
+          echo "BUILD_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - uses: falnyr/replace-env-vars-action@master
+        with:
+          filename: package.json
 
       - name: Install npm dependencies
         run: |
