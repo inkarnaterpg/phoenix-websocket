@@ -13,7 +13,7 @@ Full Documentation: https://inkarnaterpg.github.io/phoenix-websocket/
 - Allows defining multiple message handler functions that are called depending on the content of received messages.
 - Opinionated in assuming the server will send pre-defined messages with variable payloads.
 - Only supports the WebSocket protocol, does not have a LongPoll fallback.
-- Does not include build in Presence support
+- Does not include built in Presence support
 - Configurable timeout which can help avoid flooding the dev console with connection errors. 
 - Built with TypeScript and includes definitions without a second dependency.
 
