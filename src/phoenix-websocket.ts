@@ -265,8 +265,9 @@ export class PhoenixWebsocket {
 
   /**
     Close the current websocket connection.
+    @param {boolean} [clearTopics=true] - If true, all topics will be unsubscribed from and removed as part of the disconnection.  If false, the topics will remain subscribed to and will automatically be resubscribed to if the socket is reconnected.
    */
-  public disconnect() {
+  public disconnect(clearTopics: boolean = true): void {
     if (this.reconnectionTimeout) {
       clearTimeout(this.reconnectionTimeout)
       this.reconnectionTimeout = undefined
@@ -277,6 +278,10 @@ export class PhoenixWebsocket {
     }
     if (this._connectionStatus != WebsocketStatuses.Disconnected) {
       this._connectionStatus = WebsocketStatuses.Disconnecting
+    }
+
+    if (clearTopics) {
+      this.topics.clear()
     }
 
     this.socket?.close()
@@ -457,9 +462,14 @@ export class PhoenixWebsocket {
           undefined
         ).toString()
       )
+      topic.status = TopicStatuses.Leaving
+    } else if (
+      this.connectionStatus === WebsocketStatuses.Disconnected ||
+      this.connectionStatus === WebsocketStatuses.Disconnecting
+    ) {
+      topic.status = TopicStatuses.Unsubscribed
+      this.topics.delete(topic.topic)
     }
-
-    topic.status = TopicStatuses.Leaving
   }
 
   private scheduleHeartbeat(): void {
