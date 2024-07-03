@@ -189,10 +189,10 @@ export class PhoenixWebsocket {
           this.heartbeatReplyQueue.delete(response.messageId)
         } else {
           this.topics
-            .get(response.topicId)
+            .get(response.topic ?? '')
             ?.replyQueue.get(response.messageId)
             ?.onReply(response.data as PhoenixOkReply)
-          this.topics.get(response.topicId)?.replyQueue.delete(response.messageId)
+          this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
         }
       } else {
         if (this.heartbeatReplyQueue.has(response.messageId)) {
@@ -202,10 +202,10 @@ export class PhoenixWebsocket {
           this.heartbeatReplyQueue.delete(response.messageId)
         } else {
           this.topics
-            .get(response.topicId)
+            .get(response.topic ?? '')
             ?.replyQueue.get(response.messageId)
             ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
-          this.topics.get(response.topicId)?.replyQueue.delete(response.messageId)
+          this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
         }
       }
     } else if (response.topicId && response.message === 'phx_close') {
@@ -471,15 +471,17 @@ export class PhoenixWebsocket {
       )
       this.socket.send(message.toString())
       topic.replyQueue.set(message.messageId!, {
-        onReply: (reply) => {
+        onReply: (_reply) => {
           topic.status = TopicStatuses.Subscribed
           topic.subscribedResolvers.forEach((r) => r())
           topic.subscribedResolvers = []
+          topic.subscribedRejectors = []
         },
         onError: (err) => {
           topic.status = TopicStatuses.Unsubscribed
           this.topics.delete(topic.topic)
           topic.subscribedRejectors.forEach((r) => r(err))
+          topic.subscribedResolvers = []
           topic.subscribedRejectors = []
         },
       } as ReplyQueueEntry)
