@@ -1,3 +1,12 @@
+import { PhoenixReply } from './reply'
+import { ReplyQueueEntry } from './reply-queue-entry'
+import {
+  PhoenixConnectionError,
+  PhoenixDisconnectedError,
+  PhoenixInternalServerError,
+  PhoenixRespondedWithError,
+} from './errors'
+
 /**
  * Represents a callback that gets called and passed an optional payload when receiving a pre-defined message from a subscribed topic.
  */
@@ -24,7 +33,9 @@ export class PhoenixTopic {
   private static _nextTopicId: number = 1
 
   public subscribedResolvers: (() => void)[] = []
-  public subscribedRejectors: ((error: any) => void)[] = []
+  public subscribedRejectors: ((
+    error: PhoenixRespondedWithError | PhoenixConnectionError | PhoenixInternalServerError
+  ) => void)[] = []
 
   protected static get nextTopicId() {
     return this._nextTopicId++
@@ -36,6 +47,8 @@ export class PhoenixTopic {
     string,
     TopicMessageHandler
   >()
+  public readonly replyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
+
   private _status: TopicStatuses = TopicStatuses.Unsubscribed
   public get status(): TopicStatuses {
     return this._status
@@ -45,6 +58,7 @@ export class PhoenixTopic {
       this._status = value
       this.subscribedResolvers.forEach((m) => m())
       this.subscribedResolvers = []
+      this.subscribedRejectors = []
     } else {
       this._status = value
     }
@@ -62,5 +76,29 @@ export class PhoenixTopic {
 
   public assignNewId(): void {
     this._id = PhoenixTopic.nextTopicId
+  }
+
+  public onServerError(): void {
+    for (let queueEntry of this.replyQueue.values()) {
+      queueEntry.onError(new PhoenixInternalServerError())
+    }
+    this.replyQueue.clear()
+    this.subscribedRejectors.forEach((r) => r(new PhoenixInternalServerError()))
+  }
+
+  public onConnectionError(): void {
+    for (let queueEntry of this.replyQueue.values()) {
+      queueEntry.onError(new PhoenixConnectionError())
+    }
+    this.replyQueue.clear()
+    this.subscribedRejectors.forEach((r) => r(new PhoenixConnectionError()))
+  }
+
+  public onConnectionClosed(): void {
+    for (let queueEntry of this.replyQueue.values()) {
+      queueEntry.onError(new PhoenixDisconnectedError())
+    }
+    this.replyQueue.clear()
+    this.subscribedRejectors.forEach((r) => r(new PhoenixDisconnectedError()))
   }
 }

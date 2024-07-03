@@ -13,7 +13,7 @@ Full Documentation: https://inkarnaterpg.github.io/phoenix-websocket/
 - Allows defining multiple message handler functions that are called depending on the content of received messages.
 - Opinionated in assuming the server will send pre-defined messages with variable payloads.
 - Only supports the WebSocket protocol, does not have a LongPoll fallback.
-- Does not include built in Presence support
+- Does not include built in Presence support.
 - Configurable timeout which can help avoid flooding the dev console with connection errors. 
 - Built with TypeScript and includes definitions without a second dependency.
 
@@ -101,14 +101,19 @@ socket.subscribeToTopic("exampleTopic", {userId: "1"},
 
 ### Handling Error Responses to Topic Join Requests
 
-If the server responds to a join request with an 'error 'status, the topic will not be added to your PhoenixWebsocket instance and the promise will be rejected with the payload of the error response.  An example of handling a join error conditionally based on the message payload is:
+If the server responds to a join request with an 'error' status, the topic will not be added to your PhoenixWebsocket instance and the promise will be rejected with a `PhoenixRespondedWithError` error object.  An example of handling a join error conditionally based on the message payload is:
 
 ```typescript
-socket.subscribeToTopic("exampleTopic", {userId: "1"}).catch((payload) => {
-        if (payload.errorMsg === "Invalid User") {
-            // Do something
-        }
+socket.subscribeToTopic("exampleTopic", {userId: "1"}).catch((error) => {
+    if (error instanceof PhoenixRespondedWithError) {
+      if (error.reply.response.reason === "Invalid User") {
+        // Do something
+      }
     }
+    else {
+      console.error(error)
+    }
+  }
 )
 ```
 
@@ -129,17 +134,15 @@ socket.sendMessage("exampleTopic", "send_message", {message: "Hello!", attachmen
 To handle a message response:
 ```typescript
 socket.sendMessage("exampleTopic", "query_users").then((reply) => {
-    if (reply.status === 'ok') {
-        this.userList = [...reply.response.users]
-    }
+    this.userList = [...reply.response.users]
 })
 ```
 
 ### Handling Errors With `.sendMessage()`
 
-It's worth noting that the promise returned by `.sendMessage()` will resolve regardless of if the server responded with an 'ok' or 'error' status since we consider any response a valid response.
+The promise returned by `.sendMessage()` will only resolve if the server responds with a successful ("ok") response.  If the server returns an error response, then the promise will be rejected with a `PhoenixRespondedWithError` error.  This error type contains the response body in case you need to implement further logic on error. 
 
-The `.sendMessage()` function may throw either a `PhoenixInvalidTopicError` or a `PhoenixInvalidStateError` if you try to send a message to a topic you aren't subscribed to, or if the websocket is not currently connected.  These types are exported and can be used to catch these library-specific errors and handle them.  For ex: 
+The `.sendMessage()` function may also throw either a `PhoenixInvalidTopicError` or a `PhoenixInvalidStateError` if you try to send a message to a topic you aren't subscribed to, or if the websocket is not currently connected.  These types are exported and can be used to catch these library-specific errors and handle them.  For ex: 
 ```typescript
 try {
     socket.sendMessage("topicImNotSubscribedTo", "test")
@@ -154,7 +157,17 @@ catch (error) {
 }
 ```
 
+## Using in a Node Context
+
+This library was primarily intended for use within a browser, so it relies on the browser WebSocket API.  If you want to use this library in a node context, you will need to expose a node implementation of the WebSocket API, which can be done with the `ws`package.
+
+After installing `ws`, add the following to the top of your entrypoint:
+```typescript
+import WebSocket from "ws"
+(global as any).WebSocket ??= WebSocket
+```
+
 ## Maintainer
 This library is maintained by [Inkarnate](https://github.com/inkarnaterpg).
 
-In addition, this library is currently in use by us in a high-traffic, production environment.  While we strive to keep this library up-to-date and bug free, there may be use cases not used by us with unknown bugs.  As such, Issue reports and PRs are most welcome.
+In addition, this library is currently in use by us in a high-traffic, production environment.  While we strive to keep this library up-to-date and bug free, there may be use cases we have not encountered with unknown bugs.  As such, Issue reports and PRs are most welcome.

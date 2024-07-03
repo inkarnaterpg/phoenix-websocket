@@ -16,7 +16,8 @@
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "docs": "typedoc --entryPointStrategy resolve ./src/phoenix-websocket.ts --out docs/"
+    "docs": "typedoc --entryPointStrategy resolve ./src/phoenix-websocket.ts --out docs/",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",

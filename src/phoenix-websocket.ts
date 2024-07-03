@@ -1,9 +1,17 @@
-import { PhoenixInvalidStateError, PhoenixInvalidTopicError } from './types/errors'
+import {
+  PhoenixInvalidStateError,
+  PhoenixInvalidTopicError,
+  PhoenixRespondedWithError,
+  PhoenixInternalServerError,
+  PhoenixConnectionError,
+  PhoenixDisconnectedError,
+} from './types/errors'
 import { PhoenixTopic, TopicMessageHandler, TopicStatuses } from './types/topic'
 import { WebsocketStatuses } from './types/websocket-statuses'
 import { PhoenixMessage } from './types/message'
-import { PhoenixReply } from './types/reply'
+import { PhoenixOkReply, PhoenixReply } from './types/reply'
 import { PhoenixWebsocketLogLevels } from './types/log-levels'
+import { ReplyQueueEntry } from './types/reply-queue-entry'
 
 /**
  * Represents a connection instance to a Phoenix Sockets endpoint.
@@ -36,11 +44,8 @@ export class PhoenixWebsocket {
   public get connectionStatus(): WebsocketStatuses {
     return this._connectionStatus
   }
-  private replyQueue: Map<string, (reply: PhoenixReply) => void> = new Map<
-    string,
-    (reply: PhoenixReply) => void
-  >()
   private heartbeatTimeout: number | undefined
+  private heartbeatReplyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
   private reconnectionTimeout: number | undefined
 
   private onConnectedResolvers: (() => void)[] = []
@@ -104,7 +109,7 @@ export class PhoenixWebsocket {
       }
       this.attemptReconnection()
     }
-    this.disposeSocket()
+    this.disposeOnConnectionError()
     this.onDisconnectedCallback?.()
   }
 
@@ -127,16 +132,18 @@ export class PhoenixWebsocket {
         this.reconnectionTimeout = undefined
       }
     }
-    this.disposeSocket()
+    this.disposeOnConnectionError()
     this.onDisconnectedCallback?.()
   }
 
-  private disposeSocket(): void {
+  private disposeOnConnectionError(): void {
     if (this.heartbeatTimeout) {
       clearTimeout(this.heartbeatTimeout)
       this.heartbeatTimeout = undefined
     }
-    this.replyQueue.clear()
+    for (let topic of this.topics.values()) {
+      topic.onConnectionError()
+    }
     this.socket = undefined
   }
 
@@ -175,9 +182,32 @@ export class PhoenixWebsocket {
         : ({} as { [key: string]: any })
     let response = new PhoenixMessage(topicId, messageId, topic, message, messageData)
 
-    if (response.messageId && response.message === 'phx_reply') {
-      this.replyQueue.get(response.messageId)?.(response.data as PhoenixReply)
-      this.replyQueue.delete(response.messageId)
+    if (response.topicId && response.messageId && response.message === 'phx_reply') {
+      if ((response.data as PhoenixReply)?.status === 'ok') {
+        if (this.heartbeatReplyQueue.has(response.messageId)) {
+          this.heartbeatReplyQueue.get(response.messageId)?.onReply(response.data as PhoenixOkReply)
+          this.heartbeatReplyQueue.delete(response.messageId)
+        } else {
+          this.topics
+            .get(response.topicId)
+            ?.replyQueue.get(response.messageId)
+            ?.onReply(response.data as PhoenixOkReply)
+          this.topics.get(response.topicId)?.replyQueue.delete(response.messageId)
+        }
+      } else {
+        if (this.heartbeatReplyQueue.has(response.messageId)) {
+          this.heartbeatReplyQueue
+            .get(response.messageId)
+            ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
+          this.heartbeatReplyQueue.delete(response.messageId)
+        } else {
+          this.topics
+            .get(response.topicId)
+            ?.replyQueue.get(response.messageId)
+            ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
+          this.topics.get(response.topicId)?.replyQueue.delete(response.messageId)
+        }
+      }
     } else if (response.topicId && response.message === 'phx_close') {
       if (this.topics.has(response.topic ?? '')) {
         this.topics.get(response.topic ?? '')!.status = TopicStatuses.Unsubscribed
@@ -195,6 +225,7 @@ export class PhoenixWebsocket {
         }
         let erroredTopic = this.topics.get(response.topic ?? '')!
         erroredTopic.status = TopicStatuses.Unsubscribed
+        erroredTopic.onServerError()
         this.topics.delete(response.topic ?? '')
         this.subscribeToTopic(
           erroredTopic.topic,
@@ -280,6 +311,8 @@ export class PhoenixWebsocket {
       this._connectionStatus = WebsocketStatuses.Disconnecting
     }
 
+    this.topics.forEach((t) => t.onConnectionClosed())
+
     if (clearTopics) {
       this.topics.clear()
     }
@@ -299,6 +332,11 @@ export class PhoenixWebsocket {
    * @param {string} topic - The topic to subscribe to.
    * @param { { [key: string]: any } | undefined } payload - An optional payload object to be sent along with the join request.
    * @param { [message: string]: TopicMessageHandler } messageHandlers - An optional object containing mappings of messages to message handler callbacks, which are called when the given message is received.
+   *
+   * @throws { PhoenixInternalServerError }
+   * @throws { PhoenixConnectionError }
+   * @throws { PhoenixDisconnectedError }
+   * @throws { PhoenixRespondedWithError }
    */
   public subscribeToTopic(
     topic: string,
@@ -373,6 +411,10 @@ export class PhoenixWebsocket {
    *
    * @throws { PhoenixInvalidTopicError }
    * @throws { PhoenixInvalidStateError }
+   * @throws { PhoenixInternalServerError }
+   * @throws { PhoenixRespondedWithError }
+   * @throws { PhoenixDisconnectedError }
+   * @throws { PhoenixInternalServerError }
    */
   public async sendMessage(
     topic: string,
@@ -402,9 +444,12 @@ export class PhoenixWebsocket {
           message,
           payload
         )
-        return await new Promise((resolve, _reject) => {
+        return await new Promise((resolve, reject) => {
           this.socket?.send(phoenixMessage.toString())
-          this.replyQueue.set(phoenixMessage.messageId!, (reply) => resolve(reply))
+          phoenixTopic.replyQueue.set(phoenixMessage.messageId!, {
+            onReply: (reply) => resolve(reply),
+            onError: (err) => reject(err),
+          } as ReplyQueueEntry)
         })
       } else {
         throw new PhoenixInvalidStateError()
@@ -425,20 +470,19 @@ export class PhoenixWebsocket {
         topic.joinPayload
       )
       this.socket.send(message.toString())
-      this.replyQueue.set(message.messageId!, (reply) => {
-        if (reply.status === 'ok') {
+      topic.replyQueue.set(message.messageId!, {
+        onReply: (reply) => {
           topic.status = TopicStatuses.Subscribed
           topic.subscribedResolvers.forEach((r) => r())
           topic.subscribedResolvers = []
-        } else if (reply.status === 'error') {
+        },
+        onError: (err) => {
           topic.status = TopicStatuses.Unsubscribed
           this.topics.delete(topic.topic)
-          topic.subscribedRejectors.forEach((r) => r(reply.response))
+          topic.subscribedRejectors.forEach((r) => r(err))
           topic.subscribedRejectors = []
-        } else {
-          throw new Error('Phoenix Websocket encountered unexpected reply status: ' + reply.status)
-        }
-      })
+        },
+      } as ReplyQueueEntry)
       topic.status = TopicStatuses.Joining
     } else {
       if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
@@ -492,7 +536,10 @@ export class PhoenixWebsocket {
         undefined
       )
       this.socket.send(newMessage.toString())
-      this.replyQueue.set(newMessage.messageId!, (_reply) => this.scheduleHeartbeat())
+      this.heartbeatReplyQueue.set(newMessage.messageId!, {
+        onReply: (_reply) => this.scheduleHeartbeat(),
+        onError: (_reply) => this.scheduleHeartbeat(),
+      } as ReplyQueueEntry)
       this.heartbeatTimeout = undefined
     }
   }

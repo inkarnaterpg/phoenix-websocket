@@ -1,3 +1,5 @@
+import { PhoenixReply } from './reply'
+
 /**
  * Thrown when you try to interact with a topic that you are not currently subscribed to.
  */
@@ -21,5 +23,47 @@ export class PhoenixInvalidStateError extends Error {
     super(
       'Attempted to interact with Phoenix while the WebSocket connection is in an invalid state.'
     )
+  }
+}
+
+/**
+ * Thrown when an unexpected network state or server error interrupts a topic connection.
+ */
+export class PhoenixConnectionError extends Error {
+  constructor(topic?: string) {
+    super(
+      topic
+        ? `A connection error was encountered while trying to subscribe/interact with topic ${topic}.`
+        : `A connection error was encountered while trying to subscribe/interact with topic.`
+    )
+  }
+}
+
+/**
+ * Thrown when the server responds to a message with a server error that closes the topic.
+ */
+export class PhoenixInternalServerError extends Error {
+  constructor() {
+    super('The server encountered an internal error which forcibly closed the topic.')
+  }
+}
+
+/**
+ * Thrown when the server responds with an error reply.
+ * Differs from internal server error since this means the server successfully handled
+ * the request but explicitly returned an error.
+ */
+export class PhoenixRespondedWithError extends Error {
+  constructor(public reply?: PhoenixReply) {
+    super('The server responded with an error to the message.')
+  }
+}
+
+/**
+ * Thrown when attempting to interact with Phoenix after `disconnect()` has been called on the PhoenixWebsocket instance.
+ */
+export class PhoenixDisconnectedError extends Error {
+  constructor() {
+    super('Attempted to interact with Phoenix after the connection has been closed.')
   }
 }
