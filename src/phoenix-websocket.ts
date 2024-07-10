@@ -171,6 +171,9 @@ export class PhoenixWebsocket {
   }
 
   protected onMessage(event: MessageEvent): void {
+    if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+      console.log('Phoenix Websocket: Message received: ', event.data)
+    }
     const parsedData = JSON.parse(event.data)
     let topicId = parsedData[0] ?? null
     let messageId = parsedData[1] ?? null
@@ -445,6 +448,9 @@ export class PhoenixWebsocket {
           payload
         )
         return await new Promise((resolve, reject) => {
+          if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+            console.log('Phoenix Websocket: Sending message: ', phoenixMessage.toString())
+          }
           this.socket?.send(phoenixMessage.toString())
           phoenixTopic.replyQueue.set(phoenixMessage.messageId!, {
             onReply: (reply) => resolve(reply),
