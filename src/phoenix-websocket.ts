@@ -45,7 +45,7 @@ export class PhoenixWebsocket {
     return this._connectionStatus
   }
   private heartbeatTimeout: number | undefined
-  private heartbeatReplyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
+  private phoenixReplyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
   private reconnectionTimeout: number | undefined
 
   private onConnectedResolvers: (() => void)[] = []
@@ -187,29 +187,17 @@ export class PhoenixWebsocket {
 
     if (response.topicId && response.messageId && response.message === 'phx_reply') {
       if ((response.data as PhoenixReply)?.status === 'ok') {
-        if (this.heartbeatReplyQueue.has(response.messageId)) {
-          this.heartbeatReplyQueue.get(response.messageId)?.onReply(response.data as PhoenixOkReply)
-          this.heartbeatReplyQueue.delete(response.messageId)
-        } else {
-          this.topics
-            .get(response.topic ?? '')
-            ?.replyQueue.get(response.messageId)
-            ?.onReply(response.data as PhoenixOkReply)
-          this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
-        }
+        this.topics
+          .get(response.topic ?? '')
+          ?.replyQueue.get(response.messageId)
+          ?.onReply(response.data as PhoenixOkReply)
+        this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
       } else {
-        if (this.heartbeatReplyQueue.has(response.messageId)) {
-          this.heartbeatReplyQueue
-            .get(response.messageId)
-            ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
-          this.heartbeatReplyQueue.delete(response.messageId)
-        } else {
-          this.topics
-            .get(response.topic ?? '')
-            ?.replyQueue.get(response.messageId)
-            ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
-          this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
-        }
+        this.topics
+          .get(response.topic ?? '')
+          ?.replyQueue.get(response.messageId)
+          ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
+        this.topics.get(response.topic ?? '')?.replyQueue.delete(response.messageId)
       }
     } else if (response.topicId && response.message === 'phx_close') {
       if (this.topics.has(response.topic ?? '')) {
@@ -235,6 +223,21 @@ export class PhoenixWebsocket {
           erroredTopic.joinPayload,
           erroredTopic.topicMessageHandlerMap
         )
+      }
+    } else if (response.messageId && response.message === 'phx_reply') {
+      // Replies without a topicId should always be replies to the base phoenix topic
+      if ((response.data as PhoenixReply)?.status === 'ok') {
+        if (this.phoenixReplyQueue.has(response.messageId)) {
+          this.phoenixReplyQueue.get(response.messageId)?.onReply(response.data as PhoenixOkReply)
+          this.phoenixReplyQueue.delete(response.messageId)
+        }
+      } else if ((response.data as PhoenixReply)?.status === 'error') {
+        if (this.phoenixReplyQueue.has(response.messageId)) {
+          this.phoenixReplyQueue
+            .get(response.messageId)
+            ?.onError(new PhoenixRespondedWithError(response.data as PhoenixReply))
+          this.phoenixReplyQueue.delete(response.messageId)
+        }
       }
     } else {
       if (response.topic) {
@@ -543,8 +546,11 @@ export class PhoenixWebsocket {
         'heartbeat',
         undefined
       )
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+        console.log('Phoenix Websocket: Sending heartbeat: ', newMessage.toString())
+      }
       this.socket.send(newMessage.toString())
-      this.heartbeatReplyQueue.set(newMessage.messageId!, {
+      this.phoenixReplyQueue.set(newMessage.messageId!, {
         onReply: (_reply) => this.scheduleHeartbeat(),
         onError: (_reply) => this.scheduleHeartbeat(),
       } as ReplyQueueEntry)
