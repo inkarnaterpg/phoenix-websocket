@@ -478,6 +478,9 @@ export class PhoenixWebsocket {
         'phx_join',
         topic.joinPayload
       )
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+        console.log('Phoenix Websocket: Sending message: ', message.toString())
+      }
       this.socket.send(message.toString())
       topic.replyQueue.set(message.messageId!, {
         onReply: (_reply) => {
@@ -508,15 +511,17 @@ export class PhoenixWebsocket {
 
   private leaveTopic(topic: PhoenixTopic): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket?.send(
-        new PhoenixMessage(
-          topic.id,
-          this.nextMessageId,
-          topic.topic,
-          'phx_leave',
-          undefined
-        ).toString()
+      const message = new PhoenixMessage(
+        topic.id,
+        this.nextMessageId,
+        topic.topic,
+        'phx_leave',
+        undefined
       )
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+        console.log('Phoenix Websocket: Sending message: ', message.toString())
+      }
+      this.socket?.send(message.toString())
       topic.status = TopicStatuses.Leaving
     } else if (
       this.connectionStatus === WebsocketStatuses.Disconnected ||
