@@ -20,7 +20,7 @@ export class PhoenixWebsocket {
   private readonly HEARTBEAT_INTERVAL = 30000
   private readonly TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_THRESHOLD = 3
-  private logLevel: PhoenixWebsocketLogLevels = PhoenixWebsocketLogLevels.Informative
+  private logLevel: PhoenixWebsocketLogLevels = PhoenixWebsocketLogLevels.Warnings
   private connectionAttempt: number = 0
 
   private wsUrl: string
