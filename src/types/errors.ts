@@ -1,9 +1,14 @@
 import { PhoenixReply } from './reply'
 
 /**
+ * Base class for all phoenix-websocket error types.
+ */
+export abstract class PhoenixError extends Error {}
+
+/**
  * Thrown when you try to interact with a topic that you are not currently subscribed to.
  */
-export class PhoenixInvalidTopicError extends Error {
+export class PhoenixInvalidTopicError extends PhoenixError {
   constructor(topic?: string) {
     super(
       topic
@@ -18,7 +23,7 @@ export class PhoenixInvalidTopicError extends Error {
  *
  * For example, disconnected when trying to send a message.
  */
-export class PhoenixInvalidStateError extends Error {
+export class PhoenixInvalidStateError extends PhoenixError {
   constructor() {
     super(
       'Attempted to interact with Phoenix while the WebSocket connection is in an invalid state.'
@@ -29,7 +34,7 @@ export class PhoenixInvalidStateError extends Error {
 /**
  * Thrown when an unexpected network state or server error interrupts a topic connection.
  */
-export class PhoenixConnectionError extends Error {
+export class PhoenixConnectionError extends PhoenixError {
   constructor(topic?: string) {
     super(
       topic
@@ -42,7 +47,7 @@ export class PhoenixConnectionError extends Error {
 /**
  * Thrown when the server responds to a message with a server error that closes the topic.
  */
-export class PhoenixInternalServerError extends Error {
+export class PhoenixInternalServerError extends PhoenixError {
   constructor() {
     super('The server encountered an internal error which forcibly closed the topic.')
   }
@@ -53,7 +58,7 @@ export class PhoenixInternalServerError extends Error {
  * Differs from internal server error since this means the server successfully handled
  * the request but explicitly returned an error.
  */
-export class PhoenixRespondedWithError extends Error {
+export class PhoenixRespondedWithError extends PhoenixError {
   constructor(public reply?: PhoenixReply) {
     super('The server responded with an error to the message.')
   }
@@ -62,7 +67,7 @@ export class PhoenixRespondedWithError extends Error {
 /**
  * Thrown when attempting to interact with Phoenix after `disconnect()` has been called on the PhoenixWebsocket instance.
  */
-export class PhoenixDisconnectedError extends Error {
+export class PhoenixDisconnectedError extends PhoenixError {
   constructor() {
     super('Attempted to interact with Phoenix after the connection has been closed.')
   }
