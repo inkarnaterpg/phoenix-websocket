@@ -127,6 +127,9 @@ export class PhoenixWebsocket {
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.onOnline)
       window.removeEventListener('offline', this.onOffline)
+    } else if (typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
+      self.removeEventListener('online', this.onOnline)
+      self.removeEventListener('offline', this.onOffline)
     }
   }
 
@@ -338,6 +341,9 @@ export class PhoenixWebsocket {
         if (typeof window !== 'undefined') {
           window.addEventListener('online', this.onOnline)
           window.addEventListener('offline', this.onOffline)
+        } else if (typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
+          self.addEventListener('online', this.onOnline)
+          self.addEventListener('offline', this.onOffline)
         }
         this._connect()
       }

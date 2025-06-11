@@ -2,7 +2,7 @@
   "compilerOptions": {
     "downlevelIteration": true,
     "allowSyntheticDefaultImports": true,
-    "lib": ["esnext", "dom", "dom.iterable"],
+    "lib": ["esnext", "dom", "dom.iterable", "webworker"],
     "allowJs": true,
     "noImplicitAny": true,
     "skipLibCheck": true,
