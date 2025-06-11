@@ -124,8 +124,10 @@ export class PhoenixWebsocket {
    * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
    */
   public disposeEvents() {
-    window?.removeEventListener('online', this.onOnline)
-    window?.removeEventListener('offline', this.onOffline)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onOnline)
+      window.removeEventListener('offline', this.onOffline)
+    }
   }
 
   protected onOpen(_event: Event): void {
@@ -333,8 +335,10 @@ export class PhoenixWebsocket {
       } else {
         this.onConnectedResolvers.push(resolve as () => void)
         this.onConnectedRejectors.push(reject)
-        window?.addEventListener('online', this.onOnline)
-        window?.addEventListener('offline', this.onOffline)
+        if (typeof window !== 'undefined') {
+          window.addEventListener('online', this.onOnline)
+          window.addEventListener('offline', this.onOffline)
+        }
         this._connect()
       }
     })
