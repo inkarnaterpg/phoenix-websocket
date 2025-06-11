@@ -120,16 +120,50 @@ export class PhoenixWebsocket {
   }
 
   /**
+   * Handler for NetworkInformation API change event (Chromium fallback)
+   */
+  private onConnectionChange = () => {
+    if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+      console.log(`Phoenix Websocket: Network connection changed, online: ${navigator.onLine}`)
+    }
+
+    // Check navigator.onLine to determine connection status
+    if (!navigator.onLine) {
+      this.onOffline()
+    } else if (
+      this.socket?.readyState !== WebSocket.OPEN &&
+      this.socket?.readyState !== WebSocket.CONNECTING
+    ) {
+      this.onOnline()
+    }
+  }
+
+  /**
    * Disconnects the websocket if it isn't already, and then cleans up event listeners.
    * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
    */
   public disposeEvents() {
     if (typeof window !== 'undefined') {
+      // Browser environment
       window.removeEventListener('online', this.onOnline)
       window.removeEventListener('offline', this.onOffline)
-    } else if (typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
-      self.removeEventListener('online', this.onOnline)
-      self.removeEventListener('offline', this.onOffline)
+    } else if (
+      typeof WorkerGlobalScope !== 'undefined' &&
+      typeof self !== 'undefined' &&
+      self instanceof WorkerGlobalScope
+    ) {
+      // Web Worker environment
+      if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+        // Chromium web worker - use NetworkInformation API
+        const connection = (navigator as any).connection
+        if (connection && typeof connection.removeEventListener === 'function') {
+          connection.removeEventListener('change', this.onConnectionChange)
+        }
+      } else {
+        // Non-Chromium web worker - use online/offline events
+        self.removeEventListener('online', this.onOnline)
+        self.removeEventListener('offline', this.onOffline)
+      }
     }
   }
 
@@ -338,13 +372,40 @@ export class PhoenixWebsocket {
       } else {
         this.onConnectedResolvers.push(resolve as () => void)
         this.onConnectedRejectors.push(reject)
+
         if (typeof window !== 'undefined') {
+          // Browser environment - use online/offline events on window
           window.addEventListener('online', this.onOnline)
           window.addEventListener('offline', this.onOffline)
-        } else if (typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
-          self.addEventListener('online', this.onOnline)
-          self.addEventListener('offline', this.onOffline)
+        } else if (
+          typeof WorkerGlobalScope !== 'undefined' &&
+          typeof self !== 'undefined' &&
+          self instanceof WorkerGlobalScope
+        ) {
+          // Web Worker environment
+          if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+            // Chromium web worker - use NetworkInformation API since online/offline events don't work (see https://issues.chromium.org/issues/40155587)
+            const connection = (navigator as any).connection
+            if (connection && typeof connection.addEventListener === 'function') {
+              connection.addEventListener('change', this.onConnectionChange)
+              if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+                console.log(
+                  'Phoenix Websocket: Using NetworkInformation API for connection monitoring (Chromium worker)'
+                )
+              }
+            }
+          } else {
+            // Non-Chromium web worker - online/offline events should work
+            self.addEventListener('online', this.onOnline)
+            self.addEventListener('offline', this.onOffline)
+            if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+              console.log(
+                'Phoenix Websocket: Using online/offline events for connection monitoring (non-Chromium worker)'
+              )
+            }
+          }
         }
+
         this._connect()
       }
     })
