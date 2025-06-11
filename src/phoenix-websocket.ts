@@ -52,6 +52,7 @@ export class PhoenixWebsocket {
     return this._connectionStatus
   }
   private heartbeatTimeout: number | undefined
+  private heartbeatConnectionTimeouts: Set<number> = new Set<number>()
   private phoenixReplyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
   private reconnectionTimeout: number | undefined
 
@@ -131,14 +132,6 @@ export class PhoenixWebsocket {
    * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
    */
   public dispose() {
-    if (this.reconnectionTimeout) {
-      clearTimeout(this.reconnectionTimeout)
-      this.reconnectionTimeout = undefined
-    }
-    if (this.heartbeatTimeout) {
-      clearTimeout(this.heartbeatTimeout)
-      this.heartbeatTimeout = undefined
-    }
     this.disconnect()
     window?.removeEventListener('online', this.onOnline)
     window?.removeEventListener('offline', this.onOffline)
@@ -209,6 +202,11 @@ export class PhoenixWebsocket {
       clearTimeout(this.heartbeatTimeout)
       this.heartbeatTimeout = undefined
     }
+    ;[...this.heartbeatConnectionTimeouts.values()].forEach((timeout) => {
+      clearTimeout(timeout)
+    })
+    this.heartbeatConnectionTimeouts.clear()
+
     this.socket = undefined
   }
 
@@ -390,6 +388,11 @@ export class PhoenixWebsocket {
       clearTimeout(this.heartbeatTimeout)
       this.heartbeatTimeout = undefined
     }
+    ;[...this.heartbeatConnectionTimeouts.values()].forEach((timeout) => {
+      clearTimeout(timeout)
+    })
+    this.heartbeatConnectionTimeouts.clear()
+
     if (this._connectionStatus != WebsocketStatuses.Disconnected) {
       this._connectionStatus = WebsocketStatuses.Disconnecting
     }
@@ -648,13 +651,15 @@ export class PhoenixWebsocket {
         onReply: (_reply) => this.scheduleHeartbeat(),
         onError: (error) => this.onHeartbeatError(error),
       } as ReplyQueueEntry)
-      setTimeout(() => {
+      const connectionTimeoutId = setTimeout(() => {
         // If the heartbeat hasn't received a response within HEARTBEAT_TIMEOUT_LENGTH, assume the connection died
         if (this.phoenixReplyQueue.has(heartbeatMessageId)) {
           this.phoenixReplyQueue.get(heartbeatMessageId)!.onError(new PhoenixTimeoutError())
           this.phoenixReplyQueue.delete(heartbeatMessageId)
         }
+        this.heartbeatConnectionTimeouts.delete(connectionTimeoutId)
       }, this.HEARTBEAT_TIMEOUT_LENGTH)
+      this.heartbeatConnectionTimeouts.add(connectionTimeoutId)
       this.heartbeatTimeout = undefined
     }
   }
