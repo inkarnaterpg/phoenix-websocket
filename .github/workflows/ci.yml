@@ -71,7 +71,7 @@ jobs:
       # NOTE:
       # By default NPM access tokens expire after a year, and so these will need to be updated when the build starts to fail.
       - name: Publish
-        run: pnpm publish --access public
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
