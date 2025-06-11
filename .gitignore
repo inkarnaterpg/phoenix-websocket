@@ -9,3 +9,5 @@ yarn-error.log
 .idea/
 *.code-workspace
 docs/
+CLAUDE.md
+.claude

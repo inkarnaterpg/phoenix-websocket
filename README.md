@@ -117,6 +117,23 @@ socket.subscribeToTopic("exampleTopic", {userId: "1"}).catch((error) => {
 )
 ```
 
+If you would like to also handle errors on rejoin attempts (rejoining happens automatically when the network connection is lost and restored, for example), you can pass a `reconnectHandler` to `subscribeToTopic()`.  This handler function will be called with the connection promise of any rejoin attempt, and errors can be handled in the same way as the originally subscription promise by handling the promise's rejection.
+```typescript
+await socket.subscribeToTopic("exampleTopic", {userId: "1"}, undefined, (reconnectPromise) => {
+    // Will be called on any rejoin attempt, but *NOT* the initial join attempt, as that promise is already accessible by the return value of `subscribeToTopic()` 
+    reconnectPromise.catch((error) => {
+        if (error instanceof PhoenixRespondedWithError) {
+            if (error.reply.response.reason === "Invalid User") {
+                // Do something
+            }
+        }
+        else {
+            console.error(error)
+        }
+    })
+})
+```
+
 ### Sending Messages To The Server
 
 To send a message to a subscribed topic, you can call `.sendMessage()` and optionally include a payload.  To wait for and handle the server's response, you can await the promise returned from `.sendMessage()`.
@@ -154,6 +171,24 @@ catch (error) {
     else {
         throw error
     }
+}
+```
+
+### Clean-up
+When the `window` global is available, phoenix-websocket will automatically hook into the `online` and `offline` events to help manage connection state.
+
+Once you are done with your `PhoenixWebsocket` instance, you can clean up these events by either calling `.dispose()` or by utilize TypeScript's `using` keyword to automatically dispose the instance once it's out of scope.
+```typescript
+  // Manually clean up once you are done with the instance
+  socket = new PhoenixWebsocket("wss://example.io/channel-endpoint")
+  ...
+  socket.dispose()
+```
+```typescript
+{
+  // Will be automatically cleaned up at the end of the block
+  using socket = new PhoenixWebsocket("wss://example.io/channel-endpoint")
+  ...
 }
 ```
 

@@ -31,15 +31,19 @@ export enum TopicStatuses {
  */
 export class PhoenixTopic {
   private static _nextTopicId: number = 1
-
-  public subscribedResolvers: (() => void)[] = []
-  public subscribedRejectors: ((
-    error: PhoenixRespondedWithError | PhoenixConnectionError | PhoenixInternalServerError
-  ) => void)[] = []
-
   protected static get nextTopicId() {
     return this._nextTopicId++
   }
+
+  public subscribedResolvers: (() => void)[] = []
+  public subscribedRejectors: ((
+    error:
+      | PhoenixRespondedWithError
+      | PhoenixConnectionError
+      | PhoenixDisconnectedError
+      | PhoenixInternalServerError
+  ) => void)[] = []
+  public reconnectionHandler: ((connectionPromise: Promise<void>) => void) | undefined
 
   public readonly topic: string
   public readonly joinPayload: { [key: string]: any } | undefined
@@ -69,6 +73,11 @@ export class PhoenixTopic {
     return this._id.toString(10)
   }
 
+  /**
+   * Number of times this topic has been joined.  Will be increment on initial join, and then any subsequent reconnection attempts.
+   */
+  private joinCount: number = 0
+
   constructor(topic: string, joinPayload?: { [key: string]: any } | undefined) {
     this.topic = topic
     this.joinPayload = joinPayload
@@ -84,6 +93,8 @@ export class PhoenixTopic {
     }
     this.replyQueue.clear()
     this.subscribedRejectors.forEach((r) => r(new PhoenixInternalServerError()))
+    this.subscribedRejectors = []
+    this.subscribedResolvers = []
   }
 
   public onConnectionError(): void {
@@ -92,6 +103,8 @@ export class PhoenixTopic {
     }
     this.replyQueue.clear()
     this.subscribedRejectors.forEach((r) => r(new PhoenixConnectionError()))
+    this.subscribedRejectors = []
+    this.subscribedResolvers = []
   }
 
   public onConnectionClosed(): void {
@@ -100,5 +113,21 @@ export class PhoenixTopic {
     }
     this.replyQueue.clear()
     this.subscribedRejectors.forEach((r) => r(new PhoenixDisconnectedError()))
+    this.subscribedRejectors = []
+    this.subscribedResolvers = []
+  }
+
+  public onJoining(): void {
+    this.joinCount++
+    if (this.joinCount > 1) {
+      this.subscribedRejectors = []
+      this.subscribedResolvers = []
+      if (this.reconnectionHandler) {
+        let { promise, resolve, reject } = Promise.withResolvers<void>()
+        this.subscribedRejectors.push(reject)
+        this.subscribedResolvers.push(resolve as () => void)
+        this.reconnectionHandler(promise)
+      }
+    }
   }
 }

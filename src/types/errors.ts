@@ -72,3 +72,12 @@ export class PhoenixDisconnectedError extends PhoenixError {
     super('Attempted to interact with Phoenix after the connection has been closed.')
   }
 }
+
+/**
+ * Thrown when a heartbeat message doesn't get a reply within the timeout window.
+ */
+export class PhoenixTimeoutError extends PhoenixError {
+  constructor() {
+    super('Message timed out before receiving a response.')
+  }
+}

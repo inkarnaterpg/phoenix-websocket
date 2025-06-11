@@ -1,10 +1,11 @@
 import {
+  PhoenixConnectionError,
+  PhoenixDisconnectedError,
+  PhoenixInternalServerError,
   PhoenixInvalidStateError,
   PhoenixInvalidTopicError,
   PhoenixRespondedWithError,
-  PhoenixInternalServerError,
-  PhoenixConnectionError,
-  PhoenixDisconnectedError,
+  PhoenixTimeoutError,
 } from './types/errors'
 import { PhoenixTopic, TopicMessageHandler, TopicStatuses } from './types/topic'
 import { WebsocketStatuses } from './types/websocket-statuses'
@@ -17,7 +18,13 @@ import { ReplyQueueEntry } from './types/reply-queue-entry'
  * Represents a connection instance to a Phoenix Sockets endpoint.
  */
 export class PhoenixWebsocket {
+  // Placed at the top to avoid prettier not knowing how to handle the semicolon before [Symbol] declarations
+  [Symbol.dispose]() {
+    this.dispose()
+  }
+
   private readonly HEARTBEAT_INTERVAL = 30000
+  private readonly HEARTBEAT_TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_THRESHOLD = 3
   private logLevel: PhoenixWebsocketLogLevels = PhoenixWebsocketLogLevels.Warnings
@@ -49,6 +56,7 @@ export class PhoenixWebsocket {
   private reconnectionTimeout: number | undefined
 
   private onConnectedResolvers: (() => void)[] = []
+  private onConnectedRejectors: ((error: any) => void)[] = []
 
   /**
     A callback to be called whenever the WebSocket successfully connects or reconnects.
@@ -83,6 +91,57 @@ export class PhoenixWebsocket {
     if (timeoutInMs) {
       this.TIMEOUT_LENGTH = timeoutInMs
     }
+
+    window?.addEventListener('online', this.onOnline)
+    window?.addEventListener('offline', this.onOffline)
+  }
+
+  private onOnline = () => {
+    if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+      console.log('Phoenix Websocket: onOnline')
+    }
+    if (
+      this.socket?.readyState !== WebSocket.OPEN &&
+      this.socket?.readyState !== WebSocket.CONNECTING
+    ) {
+      this.connect()
+    }
+  }
+
+  /**
+   * In the browser sockets don't always seem to be closed immediately on connection loss, so this event handler forces it if needed.
+   */
+  private onOffline = () => {
+    const readyState = this.socket?.readyState
+    if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+      console.log(
+        `Phoenix Websocket: onOffline, readyState: ${readyState}, connectionStatus: ${this._connectionStatus}`
+      )
+    }
+
+    if (readyState != null && readyState !== WebSocket.CLOSED) {
+      // If the socket was already closed, then it should already be reconnecting
+      // If it wasn't, then update the status to trigger a reconnection (in onClose) rather than closing the socket permanently
+      this.socket?.close()
+    }
+  }
+
+  /**
+   * Disconnects the websocket if it isn't already, and then cleans up event listeners.
+   * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
+   */
+  public dispose() {
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout)
+      this.reconnectionTimeout = undefined
+    }
+    if (this.heartbeatTimeout) {
+      clearTimeout(this.heartbeatTimeout)
+      this.heartbeatTimeout = undefined
+    }
+    this.disconnect()
+    window?.removeEventListener('online', this.onOnline)
+    window?.removeEventListener('offline', this.onOffline)
   }
 
   protected onOpen(_event: Event): void {
@@ -95,6 +154,7 @@ export class PhoenixWebsocket {
     this._connectionStatus = WebsocketStatuses.Connected
     this.onConnectedResolvers.forEach((r) => r())
     this.onConnectedResolvers = []
+    this.onConnectedRejectors = []
     for (let [_id, topic] of this.topics) {
       this.joinTopic(topic)
     }
@@ -107,42 +167,47 @@ export class PhoenixWebsocket {
       if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
         console.error('Phoenix Websocket: connection error: ' + event)
       }
-      this.attemptReconnection()
     }
-    this.disposeOnConnectionError()
-    this.onDisconnectedCallback?.()
+    // Per spec, onClose should always be called after onError, so let onClose handle reconnection logic and error handling
   }
 
-  protected onClose(_event: CloseEvent): void {
+  protected onClose(event?: CloseEvent): void {
     if (
       this._connectionStatus !== WebsocketStatuses.Disconnecting &&
       this._connectionStatus !== WebsocketStatuses.Disconnected
     ) {
+      // Close was not intentional, or failed to reconnect
       if (this._connectionStatus !== WebsocketStatuses.Reconnecting) {
-        //Unexpected close
+        // Unexpectedly closed
         if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
           console.error('Phoenix Websocket: unexpectedly closed.')
         }
       }
+      this.disposeOnConnectionError()
       this.attemptReconnection()
     } else {
+      // Close was intentional
       this._connectionStatus = WebsocketStatuses.Disconnected
       if (this.reconnectionTimeout) {
         clearTimeout(this.reconnectionTimeout)
         this.reconnectionTimeout = undefined
       }
+      this.disposeConnection()
     }
-    this.disposeOnConnectionError()
     this.onDisconnectedCallback?.()
   }
 
   private disposeOnConnectionError(): void {
+    this.disposeConnection()
+    for (let topic of this.topics.values()) {
+      topic.onConnectionError()
+    }
+  }
+
+  private disposeConnection(): void {
     if (this.heartbeatTimeout) {
       clearTimeout(this.heartbeatTimeout)
       this.heartbeatTimeout = undefined
-    }
-    for (let topic of this.topics.values()) {
-      topic.onConnectionError()
     }
     this.socket = undefined
   }
@@ -273,11 +338,12 @@ export class PhoenixWebsocket {
    @returns {Promise<void>} A promise which will resolve when the connection is successfully opened.  If the websocket is already connected, this will resolve immediately.
   */
   public connect(): Promise<void> {
-    return new Promise((resolve, _reject) => {
+    return new Promise((resolve, reject) => {
       if (this._connectionStatus === WebsocketStatuses.Connected) {
         resolve()
       } else {
-        this.onConnectedResolvers.push(resolve)
+        this.onConnectedResolvers.push(resolve as () => void)
+        this.onConnectedRejectors.push(reject)
         this._connect()
       }
     })
@@ -293,11 +359,22 @@ export class PhoenixWebsocket {
   }
 
   private onConnectionCheckSuccessful() {
-    this.socket = new WebSocket(this.wsUrl)
-    this.socket.onopen = (e) => this.onOpen(e)
-    this.socket.onerror = (e) => this.onError(e)
-    this.socket.onclose = (e) => this.onClose(e)
-    this.socket.onmessage = (e) => this.onMessage(e)
+    try {
+      this.socket = new WebSocket(this.wsUrl)
+      this.socket.onopen = (e) => this.onOpen(e)
+      this.socket.onerror = (e) => this.onError(e)
+      this.socket.onclose = (e) => this.onClose(e)
+      this.socket.onmessage = (e) => this.onMessage(e)
+    } catch (error) {
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
+        console.error('Phoenix Websocket: Error opening websocket connection:', error)
+      }
+      this.disposeOnConnectionError()
+      this._connectionStatus = WebsocketStatuses.Disconnected
+      this.onConnectedRejectors.forEach((r) => r(error))
+      this.onConnectedResolvers = []
+      this.onConnectedRejectors = []
+    }
   }
 
   /**
@@ -335,9 +412,15 @@ export class PhoenixWebsocket {
    *
    * If an 'error' status is received from the server in response to the join request, then the promise will be reject with the payload of the error response.
    *
-   * @param {string} topic - The topic to subscribe to.
+   * @param { string } topic - The topic to subscribe to.
    * @param { { [key: string]: any } | undefined } payload - An optional payload object to be sent along with the join request.
-   * @param { [message: string]: TopicMessageHandler } messageHandlers - An optional object containing mappings of messages to message handler callbacks, which are called when the given message is received.
+   * @param { { [message: string]: TopicMessageHandler } | Map<string, TopicMessageHandler> | undefined } messageHandlers - An optional object containing mappings of messages to message
+   *                                                                                                                        handler callbacks, which are called when the given message is
+   *                                                                                                                        received.
+   * @param { ((reconnectPromise: Promise<void>) => void) | undefined } reconnectHandler - An optional callback which will be called with the connection promise of any subsequent reconnection
+   *                                                                                       attempts (useful when, for example, you expect that a topic connection may or may not result in error,
+   *                                                                                       and you want to  implement custom logic on these errors).  Specifically will *not* be called with the
+   *                                                                                       initial connection Promise returned by this method.
    *
    * @throws { PhoenixInternalServerError }
    * @throws { PhoenixConnectionError }
@@ -347,17 +430,20 @@ export class PhoenixWebsocket {
   public subscribeToTopic(
     topic: string,
     payload?: { [key: string]: any } | undefined,
-    messageHandlers?: { [message: string]: TopicMessageHandler }
+    messageHandlers?: { [message: string]: TopicMessageHandler },
+    reconnectHandler?: (reconnectPromise: Promise<void>) => void
   ): Promise<void>
   public subscribeToTopic(
     topic: string,
     payload?: { [key: string]: any } | undefined,
-    messageHandlers?: Map<string, TopicMessageHandler>
+    messageHandlers?: Map<string, TopicMessageHandler>,
+    reconnectHandler?: (reconnectPromise: Promise<void>) => void
   ): Promise<void>
   subscribeToTopic(
     topic: string,
     payload?: { [key: string]: any } | undefined,
-    messageHandlers?: { [message: string]: TopicMessageHandler } | Map<string, TopicMessageHandler>
+    messageHandlers?: { [message: string]: TopicMessageHandler } | Map<string, TopicMessageHandler>,
+    reconnectHandler?: (reconnectPromise: Promise<void>) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.topics.has(topic)) {
@@ -383,6 +469,7 @@ export class PhoenixWebsocket {
       this.topics.set(topic, newTopic)
       newTopic.subscribedResolvers.push(() => resolve())
       newTopic.subscribedRejectors.push((err) => reject(err))
+      newTopic.reconnectionHandler = reconnectHandler
       if (this._connectionStatus === WebsocketStatuses.Connected) {
         this.joinTopic(newTopic)
       }
@@ -471,6 +558,7 @@ export class PhoenixWebsocket {
   private joinTopic(topic: PhoenixTopic): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       topic.assignNewId()
+      topic.onJoining()
       const message = new PhoenixMessage(
         topic.id,
         this.nextMessageId,
@@ -551,15 +639,43 @@ export class PhoenixWebsocket {
         'heartbeat',
         undefined
       )
+      const heartbeatMessageId = newMessage.messageId!
       if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
         console.log('Phoenix Websocket: Sending heartbeat: ', newMessage.toString())
       }
       this.socket.send(newMessage.toString())
-      this.phoenixReplyQueue.set(newMessage.messageId!, {
+      this.phoenixReplyQueue.set(heartbeatMessageId, {
         onReply: (_reply) => this.scheduleHeartbeat(),
-        onError: (_reply) => this.scheduleHeartbeat(),
+        onError: (error) => this.onHeartbeatError(error),
       } as ReplyQueueEntry)
+      setTimeout(() => {
+        // If the heartbeat hasn't received a response within HEARTBEAT_TIMEOUT_LENGTH, assume the connection died
+        if (this.phoenixReplyQueue.has(heartbeatMessageId)) {
+          this.phoenixReplyQueue.get(heartbeatMessageId)!.onError(new PhoenixTimeoutError())
+          this.phoenixReplyQueue.delete(heartbeatMessageId)
+        }
+      }, this.HEARTBEAT_TIMEOUT_LENGTH)
       this.heartbeatTimeout = undefined
+    }
+  }
+
+  private onHeartbeatError(error: any): void {
+    if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
+      console.error('Phoenix Websocket: Heartbeat error:', error)
+    }
+
+    if (this.socket?.readyState == WebSocket.OPEN) {
+      this.socket?.close()
+    } else if (
+      this.socket?.readyState != WebSocket.CLOSING &&
+      this.connectionStatus === WebsocketStatuses.Connected
+    ) {
+      // This state should never happen, and means this.connectionStatus isn't always being updated correctly
+      // In case it does, force the socket disconnection logic to be called.
+      try {
+        this.socket?.close()
+      } catch (error) {}
+      this.onClose()
     }
   }
 
