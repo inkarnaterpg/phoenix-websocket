@@ -175,22 +175,7 @@ catch (error) {
 ```
 
 ### Clean-up
-When the `window` global is available, phoenix-websocket will automatically hook into the `online` and `offline` events to help manage connection state.
-
-Once you are done with your `PhoenixWebsocket` instance, you can clean up these events by either calling `.dispose()` or by utilize TypeScript's `using` keyword to automatically dispose the instance once it's out of scope.
-```typescript
-  // Manually clean up once you are done with the instance
-  socket = new PhoenixWebsocket("wss://example.io/channel-endpoint")
-  ...
-  socket.dispose()
-```
-```typescript
-{
-  // Will be automatically cleaned up at the end of the block
-  using socket = new PhoenixWebsocket("wss://example.io/channel-endpoint")
-  ...
-}
-```
+Once you are done with a `PhoenixWebsocket` instance, you can call `.disconnect()` to permanently close the connection and cleanup event listeners.
 
 ## Using in a Node Context
 

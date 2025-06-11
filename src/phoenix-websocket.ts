@@ -18,11 +18,6 @@ import { ReplyQueueEntry } from './types/reply-queue-entry'
  * Represents a connection instance to a Phoenix Sockets endpoint.
  */
 export class PhoenixWebsocket {
-  // Placed at the top to avoid prettier not knowing how to handle the semicolon before [Symbol] declarations
-  [Symbol.dispose]() {
-    this.dispose()
-  }
-
   private readonly HEARTBEAT_INTERVAL = 30000
   private readonly HEARTBEAT_TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_LENGTH = 1000 * 60
@@ -92,9 +87,6 @@ export class PhoenixWebsocket {
     if (timeoutInMs) {
       this.TIMEOUT_LENGTH = timeoutInMs
     }
-
-    window?.addEventListener('online', this.onOnline)
-    window?.addEventListener('offline', this.onOffline)
   }
 
   private onOnline = () => {
@@ -131,8 +123,7 @@ export class PhoenixWebsocket {
    * Disconnects the websocket if it isn't already, and then cleans up event listeners.
    * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
    */
-  public dispose() {
-    this.disconnect()
+  public disposeEvents() {
     window?.removeEventListener('online', this.onOnline)
     window?.removeEventListener('offline', this.onOffline)
   }
@@ -342,6 +333,8 @@ export class PhoenixWebsocket {
       } else {
         this.onConnectedResolvers.push(resolve as () => void)
         this.onConnectedRejectors.push(reject)
+        window?.addEventListener('online', this.onOnline)
+        window?.addEventListener('offline', this.onOffline)
         this._connect()
       }
     })
@@ -404,6 +397,7 @@ export class PhoenixWebsocket {
     }
 
     this.socket?.close()
+    this.disposeEvents()
   }
 
   /**
