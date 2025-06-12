@@ -100,7 +100,11 @@ export class PhoenixWebsocket {
       this.socket?.readyState !== WebSocket.OPEN &&
       this.socket?.readyState !== WebSocket.CONNECTING
     ) {
-      this.connect()
+      if (this.reconnectionTimeout) {
+        clearTimeout(this.reconnectionTimeout)
+        this.reconnectionTimeout = undefined
+        this._connect()
+      }
     }
   }
 
