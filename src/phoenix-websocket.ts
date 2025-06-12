@@ -22,6 +22,7 @@ export class PhoenixWebsocket {
   private readonly HEARTBEAT_TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_LENGTH = 1000 * 60
   private readonly TIMEOUT_THRESHOLD = 3
+  private readonly WORKER_ONLINE_CHECK_INTERVAL = 1500
   private logLevel: PhoenixWebsocketLogLevels = PhoenixWebsocketLogLevels.Warnings
   private connectionAttempt: number = 0
 
@@ -50,6 +51,8 @@ export class PhoenixWebsocket {
   private heartbeatConnectionTimeouts: Set<number> = new Set<number>()
   private phoenixReplyQueue: Map<string, ReplyQueueEntry> = new Map<string, ReplyQueueEntry>()
   private reconnectionTimeout: number | undefined
+  private onlineCheckInterval: number | undefined
+  private lastOnlineState: boolean = true
 
   private onConnectedResolvers: (() => void)[] = []
   private onConnectedRejectors: ((error: any) => void)[] = []
@@ -120,21 +123,21 @@ export class PhoenixWebsocket {
   }
 
   /**
-   * Handler for NetworkInformation API change event (Chromium fallback)
+   * Polling check for online status in web workers
    */
-  private onConnectionChange = () => {
-    if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
-      console.log(`Phoenix Websocket: Network connection changed, online: ${navigator.onLine}`)
-    }
+  private checkOnlineStatus = () => {
+    const isOnline = navigator.onLine
+    if (isOnline !== this.lastOnlineState) {
+      this.lastOnlineState = isOnline
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+        console.log(`Phoenix Websocket: Connection status changed, online: ${isOnline}`)
+      }
 
-    // Check navigator.onLine to determine connection status
-    if (!navigator.onLine) {
-      this.onOffline()
-    } else if (
-      this.socket?.readyState !== WebSocket.OPEN &&
-      this.socket?.readyState !== WebSocket.CONNECTING
-    ) {
-      this.onOnline()
+      if (!isOnline) {
+        this.onOffline()
+      } else {
+        this.onOnline()
+      }
     }
   }
 
@@ -147,23 +150,10 @@ export class PhoenixWebsocket {
       // Browser environment
       window.removeEventListener('online', this.onOnline)
       window.removeEventListener('offline', this.onOffline)
-    } else if (
-      typeof WorkerGlobalScope !== 'undefined' &&
-      typeof self !== 'undefined' &&
-      self instanceof WorkerGlobalScope
-    ) {
-      // Web Worker environment
-      if (typeof navigator !== 'undefined' && 'connection' in navigator) {
-        // Chromium web worker - use NetworkInformation API
-        const connection = (navigator as any).connection
-        if (connection && typeof connection.removeEventListener === 'function') {
-          connection.removeEventListener('change', this.onConnectionChange)
-        }
-      } else {
-        // Non-Chromium web worker - use online/offline events
-        self.removeEventListener('online', this.onOnline)
-        self.removeEventListener('offline', this.onOffline)
-      }
+    }
+    if (this.onlineCheckInterval) {
+      clearInterval(this.onlineCheckInterval)
+      this.onlineCheckInterval = undefined
     }
   }
 
@@ -374,7 +364,7 @@ export class PhoenixWebsocket {
         this.onConnectedRejectors.push(reject)
 
         if (typeof window !== 'undefined') {
-          // Browser environment - use online/offline events on window
+          // Browser environment - online/offline events work reliably
           window.addEventListener('online', this.onOnline)
           window.addEventListener('offline', this.onOffline)
         } else if (
@@ -382,25 +372,22 @@ export class PhoenixWebsocket {
           typeof self !== 'undefined' &&
           self instanceof WorkerGlobalScope
         ) {
-          // Web Worker environment
-          if (typeof navigator !== 'undefined' && 'connection' in navigator) {
-            // Chromium web worker - use NetworkInformation API since online/offline events don't work (see https://issues.chromium.org/issues/40155587)
-            const connection = (navigator as any).connection
-            if (connection && typeof connection.addEventListener === 'function') {
-              connection.addEventListener('change', this.onConnectionChange)
-              if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
-                console.log(
-                  'Phoenix Websocket: Using NetworkInformation API for connection monitoring (Chromium worker)'
-                )
-              }
+          // Web Worker environment - use polling to check navigator.onLine
+          // This works reliably across all browsers including Chromium, in which online/offline events don't work (see https://issues.chromium.org/issues/40155587)
+          if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+            if (this.onlineCheckInterval) {
+              clearInterval(this.onlineCheckInterval)
+              this.onlineCheckInterval = undefined
             }
-          } else {
-            // Non-Chromium web worker - online/offline events should work
-            self.addEventListener('online', this.onOnline)
-            self.addEventListener('offline', this.onOffline)
+
+            this.lastOnlineState = navigator.onLine
+            this.onlineCheckInterval = setInterval(
+              this.checkOnlineStatus,
+              this.WORKER_ONLINE_CHECK_INTERVAL
+            )
             if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
               console.log(
-                'Phoenix Websocket: Using online/offline events for connection monitoring (non-Chromium worker)'
+                'Phoenix Websocket: Using polling for connection monitoring in web worker'
               )
             }
           }
