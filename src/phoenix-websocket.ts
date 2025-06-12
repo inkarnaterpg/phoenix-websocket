@@ -167,6 +167,10 @@ export class PhoenixWebsocket {
         console.log('Phoenix Websocket, Reconnected...')
       }
     }
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout)
+      this.reconnectionTimeout = undefined
+    }
     this.connectionAttempt = 0
     this._connectionStatus = WebsocketStatuses.Connected
     this.onConnectedResolvers.forEach((r) => r())
@@ -367,37 +371,45 @@ export class PhoenixWebsocket {
         this.onConnectedResolvers.push(resolve as () => void)
         this.onConnectedRejectors.push(reject)
 
-        if (typeof window !== 'undefined') {
-          // Browser environment - online/offline events work reliably
-          window.addEventListener('online', this.onOnline)
-          window.addEventListener('offline', this.onOffline)
-        } else if (
-          typeof WorkerGlobalScope !== 'undefined' &&
-          typeof self !== 'undefined' &&
-          self instanceof WorkerGlobalScope
-        ) {
-          // Web Worker environment - use polling to check navigator.onLine
-          // This works reliably across all browsers including Chromium, in which online/offline events don't work (see https://issues.chromium.org/issues/40155587)
-          if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-            if (this.onlineCheckInterval) {
-              clearInterval(this.onlineCheckInterval)
-              this.onlineCheckInterval = undefined
-            }
+        if (this._connectionStatus === WebsocketStatuses.Disconnected) {
+          if (typeof window !== 'undefined') {
+            // Browser environment - online/offline events work reliably
+            window.addEventListener('online', this.onOnline)
+            window.addEventListener('offline', this.onOffline)
+          } else if (
+            typeof WorkerGlobalScope !== 'undefined' &&
+            typeof self !== 'undefined' &&
+            self instanceof WorkerGlobalScope
+          ) {
+            // Web Worker environment - use polling to check navigator.onLine
+            // This works reliably across all browsers including Chromium, in which online/offline events don't work (see https://issues.chromium.org/issues/40155587)
+            if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+              if (this.onlineCheckInterval) {
+                clearInterval(this.onlineCheckInterval)
+                this.onlineCheckInterval = undefined
+              }
 
-            this.lastOnlineState = navigator.onLine
-            this.onlineCheckInterval = setInterval(
-              this.checkOnlineStatus,
-              this.WORKER_ONLINE_CHECK_INTERVAL
-            )
-            if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
-              console.log(
-                'Phoenix Websocket: Using polling for connection monitoring in web worker'
+              this.lastOnlineState = navigator.onLine
+              this.onlineCheckInterval = setInterval(
+                this.checkOnlineStatus,
+                this.WORKER_ONLINE_CHECK_INTERVAL
               )
+              if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+                console.log(
+                  'Phoenix Websocket: Using polling for connection monitoring in web worker'
+                )
+              }
             }
           }
+          this._connect()
+        } else if (this._connectionStatus === WebsocketStatuses.Reconnecting) {
+          // Don't wait for timeout and try reconnecting immediately
+          if (this.reconnectionTimeout) {
+            clearTimeout(this.reconnectionTimeout)
+            this.reconnectionTimeout = undefined
+            this._connect()
+          }
         }
-
-        this._connect()
       }
     })
   }
@@ -412,6 +424,29 @@ export class PhoenixWebsocket {
   }
 
   private onConnectionCheckSuccessful() {
+    if (
+      this.connectionStatus !== WebsocketStatuses.Disconnected &&
+      this.connectionStatus !== WebsocketStatuses.Reconnecting
+    ) {
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
+        console.error('Phoenix Websocket: Trying to connect while in an invalid state')
+      }
+      return
+    }
+    if (
+      this.connectionStatus === WebsocketStatuses.Reconnecting &&
+      (this.socket?.readyState === WebSocket.CONNECTING ||
+        this.socket?.readyState === WebSocket.OPEN)
+    ) {
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Warnings) {
+        console.warn(
+          new Error(
+            `Phoenix Websocket: Attempting to reconnect while an existing socket is trying to connect, this shouldn't happen.`
+          )
+        )
+      }
+    }
+
     try {
       this.socket = new WebSocket(this.wsUrl)
       this.socket.onopen = (e) => this.onOpen(e)
