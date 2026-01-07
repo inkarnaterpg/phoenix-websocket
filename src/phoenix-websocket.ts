@@ -749,7 +749,6 @@ export class PhoenixWebsocket {
           this.phoenixReplyQueue.delete(heartbeatMessageId)
         }
         this.heartbeatConnectionTimeouts.delete(connectionTimeoutId)
-        this.socket?.close()
       }, this.HEARTBEAT_TIMEOUT_LENGTH)
       this.heartbeatConnectionTimeouts.add(connectionTimeoutId)
       this.heartbeatTimeout = undefined
@@ -773,6 +772,12 @@ export class PhoenixWebsocket {
         this.socket?.close()
       } catch (error) {}
       this.onClose()
+    } else {
+      if (this.logLevel <= PhoenixWebsocketLogLevels.Informative) {
+        console.log(
+          `Phoenix Websocket: onHeartbeatError unexpected state.  socket.readyState: ${this.socket?.readyState}, connectionStatus: ${this.connectionStatus}`
+        )
+      }
     }
   }
 
