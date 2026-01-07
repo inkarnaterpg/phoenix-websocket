@@ -749,6 +749,7 @@ export class PhoenixWebsocket {
           this.phoenixReplyQueue.delete(heartbeatMessageId)
         }
         this.heartbeatConnectionTimeouts.delete(connectionTimeoutId)
+        this.socket?.close()
       }, this.HEARTBEAT_TIMEOUT_LENGTH)
       this.heartbeatConnectionTimeouts.add(connectionTimeoutId)
       this.heartbeatTimeout = undefined
