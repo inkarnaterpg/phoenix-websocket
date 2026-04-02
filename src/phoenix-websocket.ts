@@ -493,8 +493,20 @@ export class PhoenixWebsocket {
       this.topics.clear()
     }
 
+    const hadSocket = !!this.socket
+
     this.socket?.close()
     this.disposeEvents()
+
+    // Reject any pending connect() promises
+    this.onConnectedRejectors.forEach((r) => r(new PhoenixDisconnectedError()))
+    this.onConnectedResolvers = []
+    this.onConnectedRejectors = []
+
+    // If no socket existed, onClose won't fire to transition status to Disconnected
+    if (!hadSocket) {
+      this._connectionStatus = WebsocketStatuses.Disconnected
+    }
   }
 
   /**
@@ -616,9 +628,10 @@ export class PhoenixWebsocket {
         ) {
           throw new PhoenixInvalidTopicError(topic)
         } else {
-          await new Promise<void>((resolve, _reject) =>
+          await new Promise<void>((resolve, reject) => {
             this.topics.get(topic)!.subscribedResolvers.push(() => resolve())
-          )
+            this.topics.get(topic)!.subscribedRejectors.push((err) => reject(err))
+          })
         }
       }
 
