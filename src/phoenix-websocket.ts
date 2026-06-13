@@ -354,7 +354,6 @@ export class PhoenixWebsocket {
             )
           }
         }
-        this.topics.get(response.topic)?.topicMessageHandlerMap.get(response.topic)?.(response.data)
       }
     }
   }
