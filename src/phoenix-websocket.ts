@@ -176,7 +176,14 @@ export class PhoenixWebsocket {
     this.onConnectedResolvers = []
     this.onConnectedRejectors = []
     for (let [_id, topic] of this.topics) {
-      this.joinTopic(topic)
+      if (topic.status === TopicStatuses.Leaving) {
+        // An unsubscribe was in flight when the connection dropped.  The server-side channel
+        // died with the old socket, so honor the unsubscribe instead of rejoining.
+        topic.status = TopicStatuses.Unsubscribed
+        this.topics.delete(topic.topic)
+      } else {
+        this.joinTopic(topic)
+      }
     }
     this.scheduleHeartbeat()
     this.onConnectedCallback?.()
@@ -308,11 +315,26 @@ export class PhoenixWebsocket {
         erroredTopic.status = TopicStatuses.Unsubscribed
         erroredTopic.onServerError()
         this.topics.delete(response.topic ?? '')
-        this.subscribeToTopic(
+        const rejoinPromise = this.subscribeToTopic(
           erroredTopic.topic,
           erroredTopic.joinPayload,
-          erroredTopic.topicMessageHandlerMap
+          erroredTopic.topicMessageHandlerMap,
+          erroredTopic.reconnectionHandler
         )
+        if (erroredTopic.reconnectionHandler) {
+          // This rejoin is a reconnection attempt from the consumer's perspective, so hand
+          // them its promise just like rejoins triggered by a dropped socket connection.
+          erroredTopic.reconnectionHandler(rejoinPromise)
+        } else {
+          rejoinPromise.catch((error) => {
+            if (this.logLevel <= PhoenixWebsocketLogLevels.Errors) {
+              console.error(
+                `Phoenix Websocket: Failed to resubscribe to topic (${erroredTopic.topic}) after phx_error:`,
+                error
+              )
+            }
+          })
+        }
       }
     } else if (response.messageId && response.message === 'phx_reply') {
       // Replies without a topicId should always be replies to the base phoenix topic
@@ -716,10 +738,12 @@ export class PhoenixWebsocket {
       }
       this.socket?.send(message.toString())
       topic.status = TopicStatuses.Leaving
-    } else if (
-      this.connectionStatus === WebsocketStatuses.Disconnected ||
-      this.connectionStatus === WebsocketStatuses.Disconnecting
-    ) {
+    } else {
+      // The socket is down (disconnected or reconnecting), so the server-side channel is
+      // already gone and there's no phx_leave to send.  Drop the topic locally so it won't
+      // be rejoined on reconnection, and reject any pending subscription promise so callers
+      // awaiting it don't hang forever.
+      topic.onConnectionClosed()
       topic.status = TopicStatuses.Unsubscribed
       this.topics.delete(topic.topic)
     }
