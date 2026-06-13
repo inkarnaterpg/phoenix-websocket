@@ -123,9 +123,16 @@ export class PhoenixTopic {
       this.subscribedRejectors = []
       this.subscribedResolvers = []
       if (this.reconnectionHandler) {
-        let { promise, resolve, reject } = Promise.withResolvers<void>()
-        this.subscribedRejectors.push(reject)
-        this.subscribedResolvers.push(resolve as () => void)
+        let resolve: (() => void) | undefined
+        let reject: ((error: unknown) => void) | undefined
+        const promise = new Promise<void>((res, rej) => {
+          resolve = res
+          reject = rej
+        })
+        if (resolve && reject) {
+          this.subscribedResolvers.push(resolve)
+          this.subscribedRejectors.push(reject)
+        }
         this.reconnectionHandler(promise)
       }
     }
