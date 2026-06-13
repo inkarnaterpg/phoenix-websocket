@@ -147,7 +147,6 @@ export class PhoenixWebsocket {
 
   /**
    * Disconnects the websocket if it isn't already, and then cleans up event listeners.
-   * This will also be called by PhoenixWebsocket's Symbol.dispose() if the `using` keyword is preferred over explicitly calling dispose().
    */
   public disposeEvents() {
     if (typeof window !== 'undefined') {
